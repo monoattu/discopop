@@ -12,7 +12,7 @@ Usage:
     discopop_explorer [--path <path>] [--cu-xml <cuxml>] [--dep-file <depfile>] [--plugins <plugs>] \
 [--loop-counter <loopcount>] [--reduction <reduction>] [--json <json_out>] [--fmap <fmap>] \
 [--task-pattern] [--cu-inst-res <cuinstres>] [--llvm-cxxfilt-path <cxxfp>] \
-[--dp-build-path=<dpbuildpath>] [--generate-data-cu-inst <outputdir>]
+[--dp-build-path=<dpbuildpath>] [--generate-data-cu-inst <outputdir>] [--dump-pet <json_dump>]
 
 Options:
     --path=<path>               Directory with input data [default: ./]
@@ -32,6 +32,8 @@ Options:
     --generate-data-cu-inst=<outputdir>     Generates Data_CUInst.txt file and stores it in the given directory.
                                             Stops the regular execution of the discopop_explorer.
                                             Requires --cu-xml, --dep-file, --loop-counter, --reduction.
+    --dump-pet=<json_dump>      Dumps the created PET Graph object in the format of a jsonpickle string into the
+                                specified file.
     -h --help                   Show this screen
 """
 
@@ -61,6 +63,7 @@ docopt_schema = Schema({
     '--llvm-cxxfilt-path': Use(str),
     '--dp-build-path': Use(str),
     '--generate-data-cu-inst': Use(str),
+    '--dump-pet': Use(str)
 })
 
 
@@ -109,13 +112,13 @@ def main():
     if arguments['--generate-data-cu-inst'] != 'None':
         # start generation of Data_CUInst and stop execution afterwards
         from .generate_Data_CUInst import wrapper as generate_data_cuinst_wrapper
-        generate_data_cuinst_wrapper(cu_xml, dep_file, loop_counter_file, reduction_file,
+        generate_data_cuinst_wrapper(cu_xml, dep_file, loop_counter_file, reduction_file, file_mapping,
                                      arguments['--generate-data-cu-inst'])
         sys.exit(0)
 
     start = time.time()
 
-    res = run(cu_xml, dep_file, loop_counter_file, reduction_file, plugins, file_mapping=file_mapping,
+    res, pet = run(cu_xml, dep_file, loop_counter_file, reduction_file, plugins, file_mapping=file_mapping,
               cu_inst_result_file=cu_inst_result_file, llvm_cxxfilt_path=arguments[
                   '--llvm-cxxfilt-path'],
               discopop_build_path=discopop_build_path, enable_task_pattern=arguments['--task-pattern'])
@@ -127,6 +130,13 @@ def main():
     # else:
     #     with open(arguments['--json'], 'w') as f:
     #         json.dump(res, f, indent=2, cls=PatternInfoSerializer)
+
+    if arguments['--dump-pet'] != 'None':
+        pet_dump_path = get_path(path, arguments['--dump-pet'])
+        if os.path.exists(pet_dump_path):
+            os.remove(pet_dump_path)
+        with open(pet_dump_path, "w+") as f:
+            f.write(pet.dump_to_pickled_json())
 
     print("Time taken for pattern detection: {0}".format(end - start))
 

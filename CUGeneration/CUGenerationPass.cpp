@@ -346,7 +346,7 @@ string CUGeneration::determineVariableDefLine(Instruction *I, map<string, string
         varDefLine = "GlobalVar";
         //TODO: Find definition line of global variables
     }
-    
+
     // Start from the beginning of a function and look for the variable
     Function *F = I->getFunction();
     for (Function::iterator FI = F->begin(), FE = F->end(); FI != FE; ++FI)
@@ -361,8 +361,8 @@ string CUGeneration::determineVariableDefLine(Instruction *I, map<string, string
                 {
                     if (auto *DV = dyn_cast<DILocalVariable>(N))
                     {
-                        if(varType.find("ARRAY") != string::npos || 
-                            varType.find("STRUCT") != string::npos){
+                        if(varType.find("ARRAY") != string::npos ||
+                           varType.find("STRUCT") != string::npos){
                             if(DV->getName() == varName){
                                 varDefLine = to_string(fileID) + ":" + to_string(DV->getLine());
                                 break;
@@ -599,19 +599,19 @@ string CUGeneration::xmlEscape(string data)
         string replacement;
         switch (data[pos])
         {
-        case '\"':
-            replacement = "&quot;";
-            break;
-        case '&':
-            replacement = "&amp;";
-            break;
-        case '<':
-            replacement = "&lt;";
-            break;
-        case '>':
-            replacement = "&gt;";
-            break;
-        default:;
+            case '\"':
+                replacement = "&quot;";
+                break;
+            case '&':
+                replacement = "&amp;";
+                break;
+            case '<':
+                replacement = "&lt;";
+                break;
+            case '>':
+                replacement = "&gt;";
+                break;
+            default:;
         }
         data.replace(pos, 1, replacement);
         pos += replacement.size();
@@ -906,7 +906,7 @@ void CUGeneration::createCUs(Region *TopRegion, set<string> &globalVariablesSet,
                 currentNode = loopToNodeMap[loop];
                 // errs() << "))))) " << dputil::decodeLID(currentNode->startLine) << " " << dputil::decodeLID(currentNode->endLine) << "\n";
             }
-            //else, create a new Node for the loop, add it as children of currentNode and add it to the map.
+                //else, create a new Node for the loop, add it as children of currentNode and add it to the map.
             else
             {
                 if (bb->getName().size() != 0)
@@ -918,7 +918,7 @@ void CUGeneration::createCUs(Region *TopRegion, set<string> &globalVariablesSet,
                 n->type = nodeTypes::loop;
                 n->parentNode = currentNode;
                 currentNode->childrenNodes.push_back(n);
-                
+
                 loopToNodeMap[loop] = n;
                 currentNode = n;
                 // errs() << "--bb->Name: " << bb->getName() << " , " << "node->ID: " << currentNode->ID << "\n";
@@ -969,8 +969,8 @@ void CUGeneration::createCUs(Region *TopRegion, set<string> &globalVariablesSet,
                 {
                     cu->returnInstructions.insert(lid);
                 }
-                // find branches to return instructions, i.e. return statements
-                // Lukas 21.09.20
+                    // find branches to return instructions, i.e. return statements
+                    // Lukas 21.09.20
                 else if (isa<BranchInst>(instruction))
                 {
                     if ((cast<BranchInst>(instruction))->isUnconditional())

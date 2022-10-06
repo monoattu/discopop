@@ -136,3 +136,7 @@ install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
 _deps
+
+# Temporary files for validation
+*tmp_behavior_extraction*
+pycallgraph.png

@@ -150,6 +150,9 @@ class GPULoopPattern(PatternInfo):
         # == default construct ==
         clauses: List[str] = []
         var_names: List[str] = []
+        if self.collapse > 1:
+            clauses.append("\"collapse(" + str(self.collapse) + ")\"")
+
         if self.map_type_to:
             for var_id in self.map_type_to:
                 var_names.append(var_id)
@@ -338,11 +341,19 @@ class GPULoopPattern(PatternInfo):
         # calculate the number of iterations of this loop relative to the top loop
         n: CUNode = map_node(self.pet, node_id)
 
+        print("N: ", n)
         for cn_id in self.pet.direct_children(n):
+            print("\tCN: ", cn_id)
             if cn_id.type == 2:
-                if cn_id.end_line == n.end_line:
+                print("\t--> Loop type")
+                if cn_id.end_line <= n.end_line:  # todo not true if loop bodies are terminated by braces
+                    print("\t--> EndLines equal")
                     self.collapse += 1
                     self.setCollapseClause(cn_id.id)
+                else:
+                    print("CN end: ", cn_id.end_line)
+                    print("N end: ", n.end_line)
+
 
     def findMappedVar(self, direction: str, var: Variable) -> bool:
         """

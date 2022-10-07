@@ -7,7 +7,7 @@
 # directory for details.
 
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from pluginbase import PluginBase  # type:ignore
 
@@ -32,7 +32,7 @@ def sort_by_nodeID(e: GPULoopPattern):
 def run(cu_xml: str, dep_file: str, loop_counter_file: str, reduction_file: str, plugins: List[str],
         file_mapping: Optional[str] = None, cu_inst_result_file: Optional[str] = None,
         llvm_cxxfilt_path: Optional[str] = None, discopop_build_path: Optional[str] = None,
-        enable_task_pattern: bool = False) -> DetectionResult:
+        enable_task_pattern: bool = False) -> Tuple[DetectionResult, PETGraphX]:
     pet = PETGraphX.from_parsed_input(*parse_inputs(cu_xml, dep_file,
                                                     loop_counter_file, reduction_file, file_mapping))
     # TODO add visualization
@@ -89,4 +89,4 @@ def run(cu_xml: str, dep_file: str, loop_counter_file: str, reduction_file: str,
         # print("executing plugin after: " + plugin_name)
         pet = p.run_after(pet)
 
-    return res
+    return res, pet

@@ -16,6 +16,8 @@
 #include <string>
 #include <cstdio>
 
+#include <unordered_map>
+
 #ifdef __linux__ // headers only available on Linux
 #include <unistd.h>
 #include <linux/limits.h>
@@ -80,6 +82,20 @@ namespace __dp
 
      /******* END: parallelization section *******/
 
+    // dependencies between loop iterations can only be checked within chunks to prevent drastic slowdowns
+# define BUFFERLENGTH 3
+    unordered_map<ADDR, pair<size_t, LID>[BUFFERLENGTH]> lastReadLog;
+    unordered_map<ADDR, pair<size_t, LID>[BUFFERLENGTH]> lastWriteLog;
+
+    unordered_map<ADDR, unordered_set<int32_t>> addrToLoopIterationsMap_READ;
+    unordered_map<ADDR, unordered_set<int32_t>> addrToLoopIterationsMap_WRITE;
+    unordered_map<string, map<size_t, map<uint32_t, unordered_set<ADDR>>>> loopAccessPatternData_READ;
+    unordered_map<string, map<size_t, map<uint32_t, unordered_set<ADDR>>>> loopAccessPatternData_WRITE;
+    vector<LoopAccessPattern> loopAccessPatterns;
+    //vector<tuple<string, char*, size_t, int32_t, ADDR>> loopAccessPatternData_LIST;
+    //vector<string> loopAccessPatternData_LIST;
+
+    ofstream *loopAccessPatternData;
      /******* Helper functions *******/
 
      void addDep(depType type, LID curr, LID depOn, char *var)
@@ -117,6 +133,15 @@ namespace __dp
                case INIT:
                     cout << "INIT";
                     break;
+               case IIRAW:
+                    cout << "IIRAW";
+                    break;
+               case IIWAR:
+                    cout << "IIWAR";
+                    break;
+               case IIWAW:
+                    cout << "IIWAW";
+                    break;
                default:
                     break;
                }
@@ -150,6 +175,15 @@ namespace __dp
                          case INIT:
                               dep += "INIT";
                               break;
+                         case IIRAW:
+                              dep += "IIRAW";
+                              break;
+                         case IIWAR:
+                              dep += "IIWAR";
+                              break;
+                         case IIWAW:
+                             dep += "IIWAW";
+                             break;
                          default:
                               break;
                          }
@@ -186,6 +220,7 @@ namespace __dp
                *out << endl;
           }
      }
+
      // End HA
 
      // void outputDeps()
@@ -367,6 +402,9 @@ namespace __dp
           current.lid = lid;
           current.var = var;
           current.addr = addr;
+          current.loopHash = loopStack->getHashValue();
+          current.loopIteration = loopStack->getLoopIteration();
+
 
           if (tempAddrCount[workerID] == CHUNK_SIZE)
           {
@@ -409,6 +447,333 @@ namespace __dp
           }
           pthread_mutex_unlock(&allDepsLock);
      }
+
+    void logAccess(ADDR addr,  unordered_map<ADDR, pair<size_t, LID>[BUFFERLENGTH]>& logMap, size_t loopHash, LID lid){
+         // logMap can be either refer to read or write log map
+         // move old accesses backwards
+         for(int i = BUFFERLENGTH - 1; i > 0; i--){
+             logMap[addr][i] = logMap[addr][i-1];
+         }
+         logMap[addr][0] = pair<size_t, LID>(loopHash, lid);
+     }
+
+     void clearAccess(ADDR addr, unordered_map<ADDR, pair<size_t, LID>[BUFFERLENGTH]>& logMap){
+         for(int i = 0; i < BUFFERLENGTH; i++){
+             logMap[addr][i] = pair<size_t, LID>(0, 0);
+         }
+     }
+/*
+     bool loopIterationsEqualOrHashesNull(ADDR addr1, unordered_map<ADDR, pair<size_t, LID>>& logMap1,
+                                       ADDR addr2, unordered_map<ADDR, pair<size_t, LID>>& logMap2){
+         pair<size_t, LID> val1 = logMap1[addr1];
+         pair<size_t, LID> val2 = logMap2[addr2];
+
+         // check lids
+         if(val1.second != val2.second){
+             return true;  // not a inter-iteration dependency
+         }
+
+         // check loop hashes
+         if((val1.first == 0) || (val2.first == 0) || (val1.first == val2.first)){
+             return true;
+         }
+         return false;
+     }
+*/
+    bool checkInterIterationAccess(ADDR addr1, unordered_map<ADDR, pair<size_t, LID>[BUFFERLENGTH]>& logMap1,
+                                   ADDR addr2, unordered_map<ADDR, pair<size_t, LID>[BUFFERLENGTH]>& logMap2){
+         // check single access in first given map against the logged accesses in the second map
+
+        pair<size_t, LID> val1 = logMap1[addr1][0];
+        //pair<size_t, LID>[] val2 = logMap2[addr2];
+
+        bool retVal = false;
+
+        for(int i=0; i < BUFFERLENGTH; i++){
+            // check lids
+            if(val1.second != logMap2[addr2][i].second){
+                continue;  // not an inter-iteration access
+            }
+
+            // check loop hashes
+            if((val1.first == 0) || (logMap2[addr2][i].first == 0) || (val1.first == logMap2[addr2][i].first)){
+                continue;  // not an inter-iteration access
+            }
+
+            retVal = true;
+            break;
+        }
+        return retVal;
+     }
+
+    bool checkInterIterationAccess(size_t hash1,
+                                   size_t hash2,
+                                   LID lid1,
+                                   LID lid2){
+         if(lid1 != lid2){
+             return false;  // not an inter-iteration dependency
+         }
+
+        if((hash1 == 0) || (hash2 == 0) || (hash1 == hash2)){
+            return false;
+        }
+        return true;
+    }
+
+    void prettyPrintLoopCount(uint32_t loopIteration){
+        uint8_t ct3, ct2, ct1, ct0;
+        ct3 = (loopIteration & 0xff000000) >> 24;
+        ct2 = (loopIteration & 0x00ff0000) >> 16;
+        ct1 = (loopIteration & 0x0000ff00) >> 8;
+        ct0 = loopIteration & 0x000000ff;
+        uint32_t tmp3 = ct3;
+        uint32_t tmp2 = ct2;
+        uint32_t tmp1 = ct1;
+        uint32_t tmp0 = ct0;
+        cout << tmp3 << " " << tmp2 << " " << tmp1 << " " << tmp0;
+    }
+
+    bool checkPattern_STATIC_FWD(ADDR lastAccessed, ADDR currentlyAccessed){
+        if(lastAccessed == currentlyAccessed){
+            return true;
+        }
+        return false;
+    }
+
+    bool checkPattern_SEQ_FWD(ADDR lastAccessed, ADDR currentlyAccessed){
+        if(lastAccessed + 8 == currentlyAccessed){
+            return true;
+        }
+        return false;
+    }
+
+    bool checkPattern_SEQ_FWD_K(ADDR lastAccessed, ADDR currentlyAccessed, int& pK){
+        if(pK == 0){
+            pK = currentlyAccessed - lastAccessed;
+            return true;
+        }
+        if(lastAccessed + pK == currentlyAccessed && pK > 0){
+            return true;
+        }
+        return false;
+    }
+
+    bool checkPattern_RANDOM_FWD(ADDR lastAccessed, ADDR currentlyAccessed){
+        if(currentlyAccessed >= lastAccessed){
+            return true;
+        }
+        return false;
+    }
+
+    bool checkPattern_STATIC_BWD(ADDR lastAccessed, ADDR currentlyAccessed){
+        if(lastAccessed == currentlyAccessed){
+            return true;
+        }
+        return false;
+    }
+
+    bool checkPattern_SEQ_BWD(ADDR lastAccessed, ADDR currentlyAccessed){
+        if(lastAccessed == currentlyAccessed + 8){
+            return true;
+        }
+        return false;
+    }
+
+    bool checkPattern_SEQ_BWD_K(ADDR lastAccessed, ADDR currentlyAccessed, int& pK){
+        if(pK == 0){
+            pK = lastAccessed - currentlyAccessed;
+            return true;
+        }
+        if(currentlyAccessed + pK == lastAccessed && pK > 0){
+            return true;
+        }
+        return false;
+    }
+
+    bool checkPattern_RANDOM_BWD(ADDR lastAccessed, ADDR currentlyAccessed){
+        if(lastAccessed >= currentlyAccessed){
+            return true;
+        }
+        return false;
+    }
+
+    bool checkPattern(LoopAccessPattern pattern, ADDR lastAccessed, ADDR currentlyAccessed, int& pK){
+        switch(pattern.patternType){
+            case(0):
+                return true;
+            case(4):
+                 return checkPattern_STATIC_FWD(lastAccessed, currentlyAccessed);
+            case(3):
+                return checkPattern_SEQ_FWD(lastAccessed, currentlyAccessed);
+            case(2):
+                return checkPattern_SEQ_FWD_K(lastAccessed, currentlyAccessed, pK);
+            case(1):
+                return checkPattern_RANDOM_FWD(lastAccessed, currentlyAccessed);
+            case(-4):
+                return checkPattern_STATIC_BWD(lastAccessed, currentlyAccessed);
+            case(-3):
+                return checkPattern_SEQ_BWD(lastAccessed, currentlyAccessed);
+            case(-2):
+                return checkPattern_SEQ_BWD_K(lastAccessed, currentlyAccessed, pK);
+            case(-1):
+                return checkPattern_RANDOM_BWD(lastAccessed, currentlyAccessed);
+            default:
+                cout << "DEFAULTING to FALSE at pattern check" << endl;
+                return false;
+        }
+
+    }
+
+    LoopAccessPattern getAccessPattern(string varName, bool isReadPattern, LoopAccessPatternType initialType,
+                                       pair<const size_t, map<uint32_t, unordered_set<ADDR>>>* KVPair2, bool debugPrintFlag){
+        LoopAccessPattern pattern(varName, initialType, isReadPattern, false, true);
+        bool directionalAccessOccurred = false;
+
+        // todo: only consider structures, ignore regular variables due to constant memory location
+        while(pattern.patternType != RANDOM){
+            ADDR lastAccessed = 0;
+            bool patternIsValid = true;
+            int K = 0;
+            for(auto KVPair3 : KVPair2->second){
+                uint32_t iteration = KVPair3.first;  // todo get random iteration
+                // ignore iteration 255 255 255 255, as it is used to store all accesses which do not occur inside a loop
+                if(iteration == 0xFFFFFFFF){
+                    continue;
+                }
+                if(debugPrintFlag){
+                    cout << (isReadPattern ? "R " : "W ") << "pattern: " << pattern.patternType << "  \tIt: ";
+                    prettyPrintLoopCount(iteration);
+                    cout << endl;
+                }
+                for(auto addr : KVPair3.second){
+                    if(lastAccessed == 0){
+                        lastAccessed = addr;
+                        continue;
+                    }
+                    if(debugPrintFlag){
+                        cout << "\t\t\t\tAddress: " << addr << endl;
+                    }
+                    // check if access in the given direction (backwards, forwards) occurred
+                    if(initialType == STATIC_FWD){
+                        // check for forward access
+                        directionalAccessOccurred = directionalAccessOccurred || (lastAccessed < addr);
+                    }
+                    else{
+                        // check for backwards access
+                        directionalAccessOccurred = directionalAccessOccurred || (lastAccessed > addr);
+                    }
+
+                    // check if pattern can be strict
+                    if(lastAccessed == addr){
+                        pattern.isStrict = false;
+                    }
+
+                    patternIsValid = patternIsValid && checkPattern(pattern, lastAccessed, addr, K);
+                    lastAccessed = addr;
+                }
+                if(! patternIsValid){
+                    break;
+                }
+            }
+            if(! patternIsValid){
+                pattern.transition();
+            }
+            else{
+                break;  // found a valid pattern
+            }
+        }
+        // only report pattern if it is static or a directional access occured
+        if(pattern.patternType == STATIC_FWD || pattern.patternType == STATIC_BWD ||
+                (pattern.patternType > 0 && directionalAccessOccurred) ||
+                (pattern.patternType < 0 && directionalAccessOccurred)){
+            pattern.isValid = true;
+        }
+        return pattern;
+    }
+
+    void outputLoopPatternData(){
+        // detect and output loop access patterns
+        // check write accesses for patterns
+        // unordered_map<char*, map<size_t, map<uint32_t, unordered_set<ADDR>>>> loopAccessPatternData_WRITE;
+        for(auto KVPair1 : loopAccessPatternData_WRITE){
+            string varName = KVPair1.first;
+            // todo remove
+            bool debug_varNameIsB = varName.substr(0, 1).compare("b") == 0;
+            bool enableDebugPrint = false;
+            for(auto KVPair2 : KVPair1.second){
+                size_t loopId = KVPair2.first;
+                // forwards pattern detection
+                LoopAccessPattern fwdPattern = getAccessPattern(varName, false, STATIC_FWD, &KVPair2, enableDebugPrint);
+                if(fwdPattern.isValid) {
+                    loopAccessPatterns.push_back(fwdPattern);
+                }
+                // backwards pattern detection
+                LoopAccessPattern bwdPattern = getAccessPattern(varName, false, STATIC_BWD, &KVPair2, enableDebugPrint);
+                if(bwdPattern.isValid){
+                    loopAccessPatterns.push_back(bwdPattern);
+                }
+            }
+        }
+        // check read access patterns
+        for(auto KVPair1 : loopAccessPatternData_READ){
+            string varName = KVPair1.first;
+            // todo remove
+            bool debug_varNameIsB = varName.substr(0, 1).compare("b") == 0;
+            bool enableDebugPrint = false;
+            for(auto KVPair2 : KVPair1.second){
+                size_t loopId = KVPair2.first;
+                // forwards pattern detection
+                LoopAccessPattern fwdPattern = getAccessPattern(varName, true, STATIC_FWD, &KVPair2, enableDebugPrint);
+                if(fwdPattern.isValid) {
+                    loopAccessPatterns.push_back(fwdPattern);
+                }
+                // backwards pattern detection
+                LoopAccessPattern bwdPattern = getAccessPattern(varName, true, STATIC_BWD, &KVPair2, enableDebugPrint);
+                if(bwdPattern.isValid){
+                    loopAccessPatterns.push_back(bwdPattern);
+                }
+            }
+        }
+
+        // output identified access patterns to file
+        for(LoopAccessPattern pattern : loopAccessPatterns){
+            string patternTypeString = "";
+            switch(pattern.patternType){
+                case(0):
+                    patternTypeString = "RANDOM";
+                    break;
+                case(1):
+                    patternTypeString = "RANDOM_FWD";
+                    break;
+                case(2):
+                    patternTypeString = "SEQ_FWD_K";
+                    break;
+                case(3):
+                    patternTypeString = "SEQ_FWD";
+                    break;
+                case(4):
+                    patternTypeString = "STATIC_FWD";
+                    break;
+                case(-1):
+                    patternTypeString = "RANDOM_BWD";
+                    break;
+                case(-2):
+                    patternTypeString = "SEQ_BWD_K";
+                    break;
+                case(-3):
+                    patternTypeString = "SEQ_BWD";
+                    break;
+                case(-4):
+                    patternTypeString = "STATIC_BWD";
+                    break;
+                default:
+                    break;
+            }
+            patternTypeString = (pattern.isStrict ? "strict " : "") + patternTypeString;
+            cout << (pattern.isReadPattern ? "R" : "W") << ";" << pattern.varName  << ";" << patternTypeString << endl;
+            *loopAccessPatternData << (pattern.isReadPattern ? "R" : "W") << ";" << pattern.varName  << ";" << patternTypeString << endl;
+        }
+    }
 
      void *analyzeDeps(void *arg)
      {
@@ -453,26 +818,84 @@ namespace __dp
                     {
                          access = accesses[i];
 
+                      if(access.var == 0){
+                          access.var = "NULL";
+                      }
+
+                        // add access information to addrToLoopIterationsMap_READ and addrToLoopIterationsMap_WRITE
+                        if(access.isRead) {
+                            string read_target = "" + string(access.var) + "@" + decodeLID(access.lid);
+                            loopAccessPatternData_READ[read_target][access.loopHash][access.loopIteration].insert(access.addr);
+                        }
+                        else{
+                            string write_target = "" + string(access.var) + "@" + decodeLID(access.lid);
+                            loopAccessPatternData_WRITE[write_target][access.loopHash][access.loopIteration].insert(access.addr);
+                        }
+
+
+/*
+                        cout << "skip: " << access.skip << endl;
+                        cout << "CurrentHash: " << access.loopHash << endl;
+                        cout << "lastReadHashes: " << endl;
+                        for(int i = 0; i < BUFFERLENGTH; i++){
+                            cout << "\t" << lastReadLog[access.addr][i].first << "@" << lastReadLog[access.addr][i].second << " ";
+                        }
+                        cout << endl;
+
+                        cout << "lastWriteHashes: " << endl;
+                        for(int i = 0; i < BUFFERLENGTH; i++){
+                            cout << "\t" << lastWriteLog[access.addr][i].first << "@" << lastWriteLog[access.addr][i].second << " ";
+                        }
+*/
+//                        cout << endl << endl;
+
+
                          if (access.isRead)
                          {
+
                               // hybrid analysis
                               if (access.skip)
                               {
                                    SMem->insertToRead(access.addr, access.lid);
+                                   // log read access
+                                   logAccess(access.addr, lastReadLog, access.loopHash, access.lid);
                                    continue;
                               }
                               // End HA
                               sigElement lastWrite = SMem->testInWrite(access.addr);
                               if (lastWrite != 0)
                               {
-                                   // RAW
-                                   SMem->insertToRead(access.addr, access.lid);
-                                   addDep(RAW, access.lid, lastWrite, access.var);
+                                  // RAW
+                                  SMem->insertToRead(access.addr, access.lid);
+                                  // log read access
+                                  logAccess(access.addr, lastReadLog, access.loopHash, access.lid);
+                                  // check if read and write access loop iterations are equal and both hash values are not 0 (both occur inside a loop)
+                                  bool interIterationRAW = checkInterIterationAccess(access.addr,
+                                                                                         lastReadLog,
+                                                                                         access.addr,
+                                                                                         lastWriteLog);
+
+
+                                  if(interIterationRAW){
+                                      addDep(IIRAW, access.lid, lastWrite, access.var);
+                                  }
+                                  else{
+                                      addDep(RAW, access.lid, lastWrite, access.var);
+                                  }
                               }
                          }
                          else
                          {
                               sigElement lastWrite = SMem->insertToWrite(access.addr, access.lid);
+                              // log write access
+                              // todo support parallelization. currently, DP.conf -> workers=1 required!
+                              pair<size_t, LID> lastLoopHash;
+                              if(lastWriteLog.find(access.addr) != lastWriteLog.end()){
+                                   lastLoopHash = lastWriteLog[access.addr][0];
+                              }
+
+
+                              logAccess(access.addr, lastWriteLog, access.loopHash, access.lid);
                               if (lastWrite == 0)
                               {
                                    // INIT
@@ -483,15 +906,37 @@ namespace __dp
                                    sigElement lastRead = SMem->testInRead(access.addr);
                                    if (lastRead != 0)
                                    {
-                                        // WAR
-                                        addDep(WAR, access.lid, lastRead, access.var);
+                                       // WAR
+                                       // check if read and write access loop iterations are equal and both hash values are not 0 (both occur inside a loop)
+                                       bool interIterationWAR = checkInterIterationAccess(access.addr,
+                                                                                          lastWriteLog,
+                                                                                          access.addr,
+                                                                                          lastReadLog);
+                                       if(interIterationWAR){
+                                           addDep(IIWAR, access.lid, lastRead, access.var);
+                                       }
+                                       else{
+                                           addDep(WAR, access.lid, lastRead, access.var);
+                                       }
                                         // Clear intermediate read ops
                                         SMem->insertToRead(access.addr, 0);
+                                        // clear read log
+                                        clearAccess(access.addr, lastReadLog);
                                    }
                                    else
                                    {
-                                        // WAW
-                                        addDep(WAW, access.lid, lastWrite, access.var);
+                                       // WAW
+                                       // check if read and write access loop iterations are equal and both hash values are not 0 (both occur inside a loop)
+                                       bool interIterationWAW = checkInterIterationAccess(access.loopHash,
+                                                                                          lastLoopHash.first,
+                                                                                          access.lid,
+                                                                                          lastLoopHash.second );
+                                       if(interIterationWAW){
+                                           addDep(IIWAW, access.lid, lastWrite, access.var);
+                                       }
+                                       else{
+                                           addDep(WAW, access.lid, lastWrite, access.var);
+                                       }
                                    }
                               }
                          }
@@ -630,6 +1075,8 @@ namespace __dp
                current.lid = lid;
                current.var = var;
                current.addr = addr;
+               current.loopHash = loopStack->getHashValue();
+               current.loopIteration = loopStack->getLoopIteration();
 
                if (tempAddrCount[workerID] == CHUNK_SIZE)
                {
@@ -682,6 +1129,8 @@ namespace __dp
                current.lid = lid;
                current.var = var;
                current.addr = addr;
+               current.loopHash = loopStack->getHashValue();
+               current.loopIteration = loopStack->getLoopIteration();
 
                if (tempAddrCount[workerID] == CHUNK_SIZE)
                {
@@ -735,6 +1184,8 @@ namespace __dp
                current.var = var;
                current.addr = addr;
                current.skip = true;
+               current.loopHash = loopStack->getHashValue();
+               current.loopIteration = loopStack->getLoopIteration();
 
                if (tempAddrCount[workerID] == CHUNK_SIZE)
                {
@@ -788,6 +1239,8 @@ namespace __dp
                current.var = var;
                current.addr = addr;
                current.skip = true;
+               current.loopHash = loopStack->getHashValue();
+               current.loopIteration = loopStack->getLoopIteration();
 
                if (tempAddrCount[workerID] == CHUNK_SIZE)
                {
@@ -844,6 +1297,8 @@ namespace __dp
                generateStringDepMap();
                // End HA
                outputDeps();
+               // Output data for Loop pattern detection
+               outputLoopPatternData();
 
                delete loopStack;
                delete endFuncs;
@@ -868,6 +1323,9 @@ namespace __dp
                *out << decodeLID(lid) << " END program" << endl;
                out->flush();
                out->close();
+
+               loopAccessPatternData->flush();
+               loopAccessPatternData->close();
 
                delete out;
                targetTerminated = true; // mark the target program has returned from main()
@@ -940,6 +1398,9 @@ namespace __dp
                     bbList = new ReportedBBSet();
                     // End HA
 
+                    // loop access patterns
+                    loopAccessPatternData = new ofstream();
+
 #ifdef __linux__
                     // try to get an output file name w.r.t. the target application
                     // if it is not available, fall back to "Output.txt"
@@ -953,11 +1414,14 @@ namespace __dp
                               out->open("Output.txt", ios::out);
                          }
                          out->open(string(selfPath) + "_dep.txt", ios::out);
+                         loopAccessPatternData->open(string(selfPath) + "_loopAccessPatternData.txt", ios::out);
                     }
 #else
                     out->open("Output.txt", ios::out);
+                    loopAccessPatternData->open("loopAccessPatternData.txt", ios::out);
 #endif
                     assert(out->is_open() && "Cannot open a file to output dependences.\n");
+                    assert(loopAccessPatternData->is_open() && "Cannot open a file to output loop access pattern data.\n");
 
                     if (DP_DEBUG)
                     {

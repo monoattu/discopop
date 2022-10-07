@@ -18,6 +18,7 @@ from .parser import readlineToCUIdMap, writelineToCUIdMap, DependenceItem
 from .variable import Variable
 import time
 import itertools
+import jsonpickle  # type:ignore
 
 node_props = [
     ('BasicBlockID', 'string', '\'\''),
@@ -58,6 +59,9 @@ class DepType(Enum):
     WAR = 1
     WAW = 2
     INIT = 3
+    IIRAW = 4  # inter-iteration RAW
+    IIWAR = 5  # inter-iteration WAR
+    IIWAW = 6  # inter-iteration WAW
 
 
 class NodeType(IntEnum):
@@ -281,7 +285,6 @@ class PETGraphX(object):
 
             sink_cu_ids = readlineToCUIdMap[dep.sink]
             source_cu_ids = writelineToCUIdMap[dep.source]
-
             for sink_cu_id in sink_cu_ids:
                 for source_cu_id in source_cu_ids:
 
@@ -307,8 +310,15 @@ class PETGraphX(object):
                         # if sink_cu_id == source_cu_id and (dep.type == 'WAR' or dep.type == 'WAW'):
                         #     continue
                     if sink_cu_id and source_cu_id:
-                        g.add_edge(sink_cu_id, source_cu_id,
-                                   data=parse_dependency(dep))
+                        # make sure that dep.var_name is a variable which is used in both CUs
+                        # this step is necessary, since no read and write phase line information is present anymore
+                        # and each line of a CU is assumed to be both
+
+                        sink_vars = [var.name for var in sink_node.global_vars + sink_node.local_vars]
+                        source_vars = [var.name for var in source_node.global_vars + source_node.local_vars]
+                        if dep.var_name in sink_vars and dep.var_name in source_vars:
+                            g.add_edge(sink_cu_id, source_cu_id,
+                                       data=parse_dependency(dep))
         # t7 = time.time()
         # print(f"for dep in dependencies_list: {t7-t6}")
         return cls(g, reduction_vars, pos)
@@ -532,7 +542,7 @@ class PETGraphX(object):
 
         for v in children:
             for s, t, d in [(s, t, d) for s, t, d in self.out_edges(v.id, EdgeType.DATA)
-                            if d.dtype == DepType.RAW and d.var_name in undefinedVarsInLoop]:
+                            if d.dtype in [DepType.RAW, DepType.IIRAW] and d.var_name in undefinedVarsInLoop]:
                 if (self.is_loop_index(d.var_name, loops_start_lines, self.subtree_of_type(root_loop, NodeType.CU))
                         or self.is_readonly_inside_loop_body(d, root_loop)):
                     continue
@@ -683,24 +693,24 @@ class PETGraphX(object):
             if var.defLine == "LineNotFound" or var.defLine == "GlobalVar" or "0:" in var.defLine:
                 dummyVariables.append(var)
 
-        vars = list(set(vars) ^ set(dummyVariables))
+        vars_list = list(set(vars) ^ set(dummyVariables))
         # Exclude variables which are defined inside the loop
-        for var in vars:
+        for var in vars_list:
             if var.defLine >= root_loop.start_position() and var.defLine <= root_loop.end_position():
                 definedVarsInLoop.append(var)
 
-        vars = list(set(vars) ^ set(definedVarsInLoop))
+        vars_list = list(set(vars) ^ set(definedVarsInLoop))
 
         # Also, exclude variables which are defined inside
         # functions that are called within the loop
-        for var in vars:
+        for var in vars_list:
             for s in sub:
                 if var.defLine >= s.start_position() and var.defLine <= s.end_position():
                     definedVarsInCalledFunctions.append(var)
 
-        vars = list(set(vars) ^ set(definedVarsInCalledFunctions))
+        vars_list = list(set(vars) ^ set(definedVarsInCalledFunctions))
 
-        return vars
+        return vars_list
 
     def is_first_written_in_loop(self, dep: Dependency, root_loop: CUNode):
         """Checks whether a variable is first written inside the current node
@@ -719,7 +729,7 @@ class PETGraphX(object):
 
         for v in children:
             for t, d in [(t, d) for s, t, d in self.out_edges(v.id, EdgeType.DATA)
-                         if d.dtype == DepType.WAR or d.dtype == DepType.WAW]:
+                         if d.dtype in [DepType.WAR, DepType.IIWAR] or d.dtype in [DepType.WAW, DepType.IIWAW]]:
                 if d.var_name is None:
                     return False
                 assert d.var_name is not None
@@ -767,7 +777,7 @@ class PETGraphX(object):
 
         for c in children:
             for t, d in [(t, d) for s, t, d in self.out_edges(c.id, EdgeType.DATA)
-                         if d.dtype == DepType.RAW and d.var_name == var_name]:
+                         if d.dtype in [DepType.RAW, DepType.IIRAW] and d.var_name == var_name]:
                 if (d.sink == d.source
                         and d.source in loops_start_lines
                         and self.node_at(t) in children):
@@ -789,14 +799,14 @@ class PETGraphX(object):
 
         for v in children:
             for t, d in [(t, d) for s, t, d in self.out_edges(v.id, EdgeType.DATA)
-                         if d.dtype == DepType.WAR or d.dtype == DepType.WAW]:
+                         if d.dtype in [DepType.WAR, DepType.IIWAR] or d.dtype in [DepType.WAW, DepType.IIWAW]]:
                 # If there is a waw dependency for var, then var is written in loop
                 # (sink is always inside loop for waw/war)
                 if (dep.var_name == d.var_name
                         and not (d.sink in loops_start_lines)):
                     return False
             for t, d in [(t, d) for s, t, d in self.in_edges(v.id, EdgeType.DATA)
-                         if d.dtype == DepType.RAW]:
+                         if d.dtype in [DepType.RAW, DepType.IIRAW]]:
                 # If there is a reverse raw dependency for var, then var is written in loop
                 # (source is always inside loop for reverse raw)
                 if (dep.var_name == d.var_name
@@ -889,3 +899,12 @@ class PETGraphX(object):
             if rv['loop_line'] == line and rv['name'] == name:
                 return rv['operation']
         return ""
+
+    def dump_to_pickled_json(self) -> str:
+        """Encodes and returns the entire Object into a pickled json string.
+        The encoded string can be reconstructed into an object by using:
+        jsonpickle.decode(json_str)
+
+        :return: encoded string
+        """
+        return jsonpickle.encode(self)

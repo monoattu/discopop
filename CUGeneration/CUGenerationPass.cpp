@@ -212,7 +212,7 @@ namespace
         //set<DIGlobalVariable*> programGlobalVariables;
 
         //DiscoPoP Functions
-        string determineVariableType(Instruction *I);
+        string determineVariableType(Instruction *I, string varName);
         string determineVariableName(Instruction *I, map<string, string>* trueVarNamesFromMetadataMap, bool &isGlobalVariable = defaultIsGlobalVariableValue);
         Type *pointsToStruct(PointerType *PTy);
         string getOrInsertVarName(string varName, IRBuilder<> &builder);
@@ -339,14 +339,14 @@ string CUGeneration::determineVariableDefLine(Instruction *I, map<string, string
 
     string varName = determineVariableName(&*I, trueVarNamesFromMetadataMap);
     varName = refineVarName(varName);
-    string varType = determineVariableType(&*I);
+    string varType = determineVariableType(&*I, varName);
 
     if (programGlobalVariablesSet.count(varName))
     {
         varDefLine = "GlobalVar";
         //TODO: Find definition line of global variables
     }
-    
+
     // Start from the beginning of a function and look for the variable
     Function *F = I->getFunction();
     for (Function::iterator FI = F->begin(), FE = F->end(); FI != FE; ++FI)
@@ -361,8 +361,8 @@ string CUGeneration::determineVariableDefLine(Instruction *I, map<string, string
                 {
                     if (auto *DV = dyn_cast<DILocalVariable>(N))
                     {
-                        if(varType.find("ARRAY") != string::npos || 
-                            varType.find("STRUCT") != string::npos){
+                        if(varType.find("ARRAY") != string::npos ||
+                           varType.find("STRUCT") != string::npos){
                             if(DV->getName() == varName){
                                 varDefLine = to_string(fileID) + ":" + to_string(DV->getLine());
                                 break;
@@ -395,7 +395,7 @@ string CUGeneration::determineVariableDefLine(Instruction *I, map<string, string
     return varDefLine;
 }
 
-string CUGeneration::determineVariableType(Instruction *I)
+string CUGeneration::determineVariableType(Instruction *I, string varName)
 {
     string s = "";
     string type_str;
@@ -407,8 +407,7 @@ string CUGeneration::determineVariableType(Instruction *I)
 
     if (operand->hasName())
     {
-        if (isa<GetElementPtrInst>(*operand))
-        {
+        if(isa<GetElementPtrInst>(*operand)){
             GetElementPtrInst *gep = cast<GetElementPtrInst>(operand);
             Value *ptrOperand = gep->getPointerOperand();
             PointerType *PTy = cast<PointerType>(ptrOperand->getType());
@@ -422,6 +421,13 @@ string CUGeneration::determineVariableType(Instruction *I)
             if (PTy->getPointerElementType()->getTypeID() == Type::ArrayTyID)
             {
                 s = "ARRAY,";
+            }
+            else{
+                // check if previous instruction is a GEP aswell. If so, an Array has been found (e.g. double**)
+                Value* prevInst = cast<Instruction>(gep)->getOperand(0);
+                if(isa<GetElementPtrInst>(prevInst)){
+                    s = "ARRAY,";
+                }
             }
         }
     }
@@ -599,19 +605,19 @@ string CUGeneration::xmlEscape(string data)
         string replacement;
         switch (data[pos])
         {
-        case '\"':
-            replacement = "&quot;";
-            break;
-        case '&':
-            replacement = "&amp;";
-            break;
-        case '<':
-            replacement = "&lt;";
-            break;
-        case '>':
-            replacement = "&gt;";
-            break;
-        default:;
+            case '\"':
+                replacement = "&quot;";
+                break;
+            case '&':
+                replacement = "&amp;";
+                break;
+            case '<':
+                replacement = "&lt;";
+                break;
+            case '>':
+                replacement = "&gt;";
+                break;
+            default:;
         }
         data.replace(pos, 1, replacement);
         pos += replacement.size();
@@ -906,7 +912,7 @@ void CUGeneration::createCUs(Region *TopRegion, set<string> &globalVariablesSet,
                 currentNode = loopToNodeMap[loop];
                 // errs() << "))))) " << dputil::decodeLID(currentNode->startLine) << " " << dputil::decodeLID(currentNode->endLine) << "\n";
             }
-            //else, create a new Node for the loop, add it as children of currentNode and add it to the map.
+                //else, create a new Node for the loop, add it as children of currentNode and add it to the map.
             else
             {
                 if (bb->getName().size() != 0)
@@ -918,7 +924,7 @@ void CUGeneration::createCUs(Region *TopRegion, set<string> &globalVariablesSet,
                 n->type = nodeTypes::loop;
                 n->parentNode = currentNode;
                 currentNode->childrenNodes.push_back(n);
-                
+
                 loopToNodeMap[loop] = n;
                 currentNode = n;
                 // errs() << "--bb->Name: " << bb->getName() << " , " << "node->ID: " << currentNode->ID << "\n";
@@ -969,8 +975,8 @@ void CUGeneration::createCUs(Region *TopRegion, set<string> &globalVariablesSet,
                 {
                     cu->returnInstructions.insert(lid);
                 }
-                // find branches to return instructions, i.e. return statements
-                // Lukas 21.09.20
+                    // find branches to return instructions, i.e. return statements
+                    // Lukas 21.09.20
                 else if (isa<BranchInst>(instruction))
                 {
                     if ((cast<BranchInst>(instruction))->isUnconditional())
@@ -1000,7 +1006,7 @@ void CUGeneration::createCUs(Region *TopRegion, set<string> &globalVariablesSet,
                     // cu->writeDataSize += u;
                     //varName = refineVarName(determineVariableName(instruction));
                     varName = determineVariableName(&*instruction, trueVarNamesFromMetadataMap);
-                    varType = determineVariableType(&*instruction);
+                    varType = determineVariableType(&*instruction, varName);
                     // if(globalVariablesSet.count(varName) || programGlobalVariablesSet.count(varName))
                     {
                         suspiciousVariables.insert(varName);
@@ -1224,7 +1230,7 @@ void CUGeneration::fillCUVariables(Region *TopRegion, set<string> &globalVariabl
                 //varName = refineVarName(determineVariableName(instruction));
                 // NOTE: changed 'instruction' to '&*instruction', next 2 lines
                 varName = determineVariableName(&*instruction, trueVarNamesFromMetadataMap);
-                varType = determineVariableType(&*instruction);
+                varType = determineVariableType(&*instruction, varName);
                 varDefLine = determineVariableDefLine(&*instruction, trueVarNamesFromMetadataMap);
 
                 Variable v(varName, varType, varDefLine);
@@ -1235,7 +1241,8 @@ void CUGeneration::fillCUVariables(Region *TopRegion, set<string> &globalVariabl
                     varName = "ARRAY, " + varName;
                 }
 
-                //errs() << "Name: "  << varName << " " << "Type: " << varType << "\n";
+                errs() << "Name: "  << varName << " " << "Type: " << varType << "\n";
+                errs() << "\n";
 
                 if (lid > (*bbCU)->endLine)
                 {

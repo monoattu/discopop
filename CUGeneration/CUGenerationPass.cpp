@@ -212,7 +212,7 @@ namespace
         //set<DIGlobalVariable*> programGlobalVariables;
 
         //DiscoPoP Functions
-        string determineVariableType(Instruction *I);
+        string determineVariableType(Instruction *I, string varName);
         string determineVariableName(Instruction *I, map<string, string>* trueVarNamesFromMetadataMap, bool &isGlobalVariable = defaultIsGlobalVariableValue);
         Type *pointsToStruct(PointerType *PTy);
         string getOrInsertVarName(string varName, IRBuilder<> &builder);
@@ -339,7 +339,7 @@ string CUGeneration::determineVariableDefLine(Instruction *I, map<string, string
 
     string varName = determineVariableName(&*I, trueVarNamesFromMetadataMap);
     varName = refineVarName(varName);
-    string varType = determineVariableType(&*I);
+    string varType = determineVariableType(&*I, varName);
 
     if (programGlobalVariablesSet.count(varName))
     {
@@ -395,7 +395,7 @@ string CUGeneration::determineVariableDefLine(Instruction *I, map<string, string
     return varDefLine;
 }
 
-string CUGeneration::determineVariableType(Instruction *I)
+string CUGeneration::determineVariableType(Instruction *I, string varName)
 {
     string s = "";
     string type_str;
@@ -403,12 +403,16 @@ string CUGeneration::determineVariableType(Instruction *I)
     raw_string_ostream rso(type_str);
     (*((I->getOperand(index))->getType())).print(rso);
 
+    cout << "RSO: " << rso.str() << endl;
+
     Value *operand = I->getOperand(index);
 
     if (operand->hasName())
     {
-        if (isa<GetElementPtrInst>(*operand))
-        {
+        cout << "OpName: " << operand->getName().str() << endl;
+        // todo check for multiple successive GEP instructions
+        if(isa<GetElementPtrInst>(*operand)){
+            cout << "HELLO from end" << endl;
             GetElementPtrInst *gep = cast<GetElementPtrInst>(operand);
             Value *ptrOperand = gep->getPointerOperand();
             PointerType *PTy = cast<PointerType>(ptrOperand->getType());
@@ -423,10 +427,23 @@ string CUGeneration::determineVariableType(Instruction *I)
             {
                 s = "ARRAY,";
             }
+            else{
+                // check if previous instruction is a GEP aswell. If so, an Array has been found (e.g. double**)
+                cout << "Num Operands: " << gep->getNumOperands() << endl;
+                cout << "Index: " << index << endl;
+                Value* prevInst = cast<Instruction>(gep)->getOperand(0);
+                if(prevInst->hasName()){
+                    cout << "PrevInstName: " << prevInst->getName().str() << endl;
+                }
+
+
+
+            }
         }
     }
 
     s = s + rso.str();
+    cout << "S: " << s << endl;
     return s;
 }
 
@@ -1000,7 +1017,7 @@ void CUGeneration::createCUs(Region *TopRegion, set<string> &globalVariablesSet,
                     // cu->writeDataSize += u;
                     //varName = refineVarName(determineVariableName(instruction));
                     varName = determineVariableName(&*instruction, trueVarNamesFromMetadataMap);
-                    varType = determineVariableType(&*instruction);
+                    varType = determineVariableType(&*instruction, varName);
                     // if(globalVariablesSet.count(varName) || programGlobalVariablesSet.count(varName))
                     {
                         suspiciousVariables.insert(varName);
@@ -1224,7 +1241,7 @@ void CUGeneration::fillCUVariables(Region *TopRegion, set<string> &globalVariabl
                 //varName = refineVarName(determineVariableName(instruction));
                 // NOTE: changed 'instruction' to '&*instruction', next 2 lines
                 varName = determineVariableName(&*instruction, trueVarNamesFromMetadataMap);
-                varType = determineVariableType(&*instruction);
+                varType = determineVariableType(&*instruction, varName);
                 varDefLine = determineVariableDefLine(&*instruction, trueVarNamesFromMetadataMap);
 
                 Variable v(varName, varType, varDefLine);
@@ -1235,7 +1252,8 @@ void CUGeneration::fillCUVariables(Region *TopRegion, set<string> &globalVariabl
                     varName = "ARRAY, " + varName;
                 }
 
-                //errs() << "Name: "  << varName << " " << "Type: " << varType << "\n";
+                errs() << "Name: "  << varName << " " << "Type: " << varType << "\n";
+                errs() << "\n";
 
                 if (lid > (*bbCU)->endLine)
                 {

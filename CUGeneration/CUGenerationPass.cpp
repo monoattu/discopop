@@ -403,16 +403,11 @@ string CUGeneration::determineVariableType(Instruction *I, string varName)
     raw_string_ostream rso(type_str);
     (*((I->getOperand(index))->getType())).print(rso);
 
-    cout << "RSO: " << rso.str() << endl;
-
     Value *operand = I->getOperand(index);
 
     if (operand->hasName())
     {
-        cout << "OpName: " << operand->getName().str() << endl;
-        // todo check for multiple successive GEP instructions
         if(isa<GetElementPtrInst>(*operand)){
-            cout << "HELLO from end" << endl;
             GetElementPtrInst *gep = cast<GetElementPtrInst>(operand);
             Value *ptrOperand = gep->getPointerOperand();
             PointerType *PTy = cast<PointerType>(ptrOperand->getType());
@@ -429,21 +424,15 @@ string CUGeneration::determineVariableType(Instruction *I, string varName)
             }
             else{
                 // check if previous instruction is a GEP aswell. If so, an Array has been found (e.g. double**)
-                cout << "Num Operands: " << gep->getNumOperands() << endl;
-                cout << "Index: " << index << endl;
                 Value* prevInst = cast<Instruction>(gep)->getOperand(0);
-                if(prevInst->hasName()){
-                    cout << "PrevInstName: " << prevInst->getName().str() << endl;
+                if(isa<GetElementPtrInst>(prevInst)){
+                    s = "ARRAY,";
                 }
-
-
-
             }
         }
     }
 
     s = s + rso.str();
-    cout << "S: " << s << endl;
     return s;
 }
 

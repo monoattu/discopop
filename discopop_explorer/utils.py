@@ -528,6 +528,10 @@ def classify_loop_variables(pet: PETGraphX, loop: CUNode) -> Tuple[List[Variable
                     last_private.append(var)
                 else:
                     shared.append(var)
+            else:
+                if not is_scalar_val(var):
+                    # array type variable is written
+                    shared.append(var)
 
         elif is_first_written(var.name, raw, war, sub):
             # TODO simplify

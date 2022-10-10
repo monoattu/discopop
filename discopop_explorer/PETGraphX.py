@@ -179,10 +179,10 @@ def parse_cu(node: ObjectifiedElement) -> CUNode:
 
     if n.type == NodeType.CU:
         if hasattr(node.localVariables, 'local'):
-            n.local_vars = [Variable(v.get('type'), v.text, v.get('defLine'))
+            n.local_vars = [Variable(v.get('type'), v.text, v.get('defLine'), v.get('accessMode'))
                             for v in node.localVariables.local]
         if hasattr(node.globalVariables, 'global'):
-            n.global_vars = [Variable(v.get('type'), v.text, v.get('defLine'))
+            n.global_vars = [Variable(v.get('type'), v.text, v.get('defLine'), v.get('accessMode'))
                              for v in getattr(node.globalVariables, 'global')]
         if hasattr(node, 'BasicBlockID'):
             n.basic_block_id = getattr(node, 'BasicBlockID')

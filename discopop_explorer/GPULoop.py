@@ -271,7 +271,7 @@ class GPULoopPattern(PatternInfo):
         vars = pet.get_undefined_variables_inside_loop(loop)
 
         for var in vars:
-
+            print("--> var:", var)
             if is_scalar_val(var):
                 continue
             if is_loop_index2(pet, loop, var.name):
@@ -281,20 +281,59 @@ class GPULoopPattern(PatternInfo):
                     loop.start_position(), var.name)
                 reduction.append(var)
             # TODO grouping
-            if (is_written_in_subtree(var.name, raw, waw, lst)
-                    or is_func_arg(pet, var.name, loop)):
-                if is_readonly(var.name, war, waw, rev_raw):
-                    self.map_type_to.append(var.name)
-                elif is_read_in_right_subtree(var.name, rev_raw, sub):
-                    self.map_type_tofrom.append(var.name)
-                elif is_written_in_subtree(var.name, raw, waw, sub):
-                    self.map_type_alloc.append(var.name)
-            elif is_first_written(var.name, raw, war, sub):
-                # TODO simplify
-                if is_read_in_subtree(var.name, rev_raw, rst):
-                    self.map_type_from.append(var.name)
-                else:
-                    self.map_type_alloc.append(var.name)
+
+            # check for allocation
+            # allocation needs to happen whenever var has not been written prior
+            if not is_written_in_subtree(var.name, raw, waw, lst):
+                print("---> Not yet written!")
+                print("\t => ALLOC")
+                self.map_type_alloc.append(var.name)
+
+            # check for map type "TO"
+            # whenever var has been written previously
+            if is_written_in_subtree(var.name, raw, waw, lst):
+                print("---> Has been written!")
+                print("\t => TO")
+                self.map_type_to.append(var.name)
+
+            # check for map type "FROM"
+            # whenever var is read after the region
+            if is_read_in_subtree(var.name, rev_raw, rst):
+                print("---> Is read after!")
+                print("\t => FROM")
+                self.map_type_from.append(var.name)
+
+            # check for map type "TOFROM"
+            if var.name in self.map_type_to and var.name in self.map_type_from:
+                self.map_type_tofrom.append(var.name)
+                self.map_type_to.remove(var.name)
+                self.map_type_from.remove(var.name)
+                print("\t => TOFROM")
+
+
+            #if (is_written_in_subtree(var.name, raw, waw, lst)
+            #        or is_func_arg(pet, var.name, loop)):
+            #    print("IF")
+            #    if is_readonly(var.name, war, waw, rev_raw):
+            #        print("->IF")
+            #        self.map_type_to.append(var.name)
+            #    elif is_read_in_right_subtree(var.name, rev_raw, sub):
+            #        print("->ELIF")
+            #        self.map_type_tofrom.append(var.name)
+            #    elif is_written_in_subtree(var.name, raw, waw, sub):
+            #        print("->ELIF 2")
+            #        self.map_type_alloc.append(var.name)
+            #    else:
+            #        print("->ELSE")
+            #elif is_first_written(var.name, raw, war, sub):
+            #    print("ELIF")
+            #    # TODO simplify
+            #    if is_read_in_subtree(var.name, rev_raw, rst):
+            #        self.map_type_from.append(var.name)
+            #    else:
+            #        self.map_type_alloc.append(var.name)
+            #else:
+            #    print("ELSE")
 
     def setParentLoop(self, pl: str) -> None:
         """

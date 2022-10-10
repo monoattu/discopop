@@ -273,6 +273,7 @@ class GPULoopPattern(PatternInfo):
         for var in vars:
             print("--> var:", var)
             if is_scalar_val(var):
+                print("\tIs Scalar")
                 continue
             if is_loop_index2(pet, loop, var.name):
                 continue
@@ -281,6 +282,19 @@ class GPULoopPattern(PatternInfo):
                     loop.start_position(), var.name)
                 reduction.append(var)
             # TODO grouping
+
+
+            # todo remove debug
+            print("\tRead only:", is_readonly(var.name, war, waw, rev_raw))
+            print("\tFunc Arg: ", is_func_arg(pet, var.name, loop))
+            print("\tFirst write:", is_first_written(var.name, raw, war, sub))
+            print("\tW LST: ", is_written_in_subtree(var.name, raw, waw, lst))
+            print("\tR RST: ", is_read_in_right_subtree(var.name, rev_raw, sub))
+            print("\tR RST:", is_read_in_subtree(var.name, rev_raw, rst))
+            print("\tW SUB: ", is_written_in_subtree(var.name, raw, waw, sub))
+            print("\tR SUB:", is_read_in_subtree(var.name, rev_raw, sub))
+
+            # todo end debug
 
             # check for allocation
             # allocation needs to happen whenever var has not been written prior
@@ -291,10 +305,16 @@ class GPULoopPattern(PatternInfo):
 
             # check for map type "TO"
             # whenever var has been written previously
-            if is_written_in_subtree(var.name, raw, waw, lst):
-                print("---> Has been written!")
+            #if is_written_in_subtree(var.name, raw, waw, lst):
+            #    print("---> Has been written!")
+            #    print("\t => TO")
+            #    self.map_type_to.append(var.name)
+            # whenever var is read
+            if is_read_in_subtree(var.name, rev_raw, sub):
+                print("--> Is read!")
                 print("\t => TO")
                 self.map_type_to.append(var.name)
+
 
             # check for map type "FROM"
             # whenever var is read after the region
@@ -311,29 +331,29 @@ class GPULoopPattern(PatternInfo):
                 print("\t => TOFROM")
 
 
-            #if (is_written_in_subtree(var.name, raw, waw, lst)
-            #        or is_func_arg(pet, var.name, loop)):
-            #    print("IF")
-            #    if is_readonly(var.name, war, waw, rev_raw):
-            #        print("->IF")
-            #        self.map_type_to.append(var.name)
-            #    elif is_read_in_right_subtree(var.name, rev_raw, sub):
-            #        print("->ELIF")
-            #        self.map_type_tofrom.append(var.name)
-            #    elif is_written_in_subtree(var.name, raw, waw, sub):
-            #        print("->ELIF 2")
-            #        self.map_type_alloc.append(var.name)
-            #    else:
-            #        print("->ELSE")
-            #elif is_first_written(var.name, raw, war, sub):
-            #    print("ELIF")
-            #    # TODO simplify
-            #    if is_read_in_subtree(var.name, rev_raw, rst):
-            #        self.map_type_from.append(var.name)
-            #    else:
-            #        self.map_type_alloc.append(var.name)
-            #else:
-            #    print("ELSE")
+#            if (is_written_in_subtree(var.name, raw, waw, lst)
+#                    or is_func_arg(pet, var.name, loop)):
+#                print("IF")
+#                if is_readonly(var.name, war, waw, rev_raw):
+#                    print("->IF")
+#                    self.map_type_to.append(var.name)
+#                elif is_read_in_right_subtree(var.name, rev_raw, sub):
+#                    print("->ELIF")
+#                    self.map_type_tofrom.append(var.name)
+#                elif is_written_in_subtree(var.name, raw, waw, sub):
+#                    print("->ELIF 2")
+#                    self.map_type_alloc.append(var.name)
+#                else:
+#                    print("->ELSE")
+#            elif is_first_written(var.name, raw, war, sub):
+#                print("ELIF")
+#                # TODO simplify
+#                if is_read_in_subtree(var.name, rev_raw, rst):
+#                    self.map_type_from.append(var.name)
+#                else:
+#                    self.map_type_alloc.append(var.name)
+#            else:
+#                print("ELSE")
 
     def setParentLoop(self, pl: str) -> None:
         """
@@ -380,18 +400,11 @@ class GPULoopPattern(PatternInfo):
         # calculate the number of iterations of this loop relative to the top loop
         n: CUNode = map_node(self.pet, node_id)
 
-        print("N: ", n)
         for cn_id in self.pet.direct_children(n):
-            print("\tCN: ", cn_id)
             if cn_id.type == 2:
-                print("\t--> Loop type")
                 if cn_id.end_line <= n.end_line:  # todo not true if loop bodies are terminated by braces
-                    print("\t--> EndLines equal")
                     self.collapse += 1
                     self.setCollapseClause(cn_id.id)
-                else:
-                    print("CN end: ", cn_id.end_line)
-                    print("N end: ", n.end_line)
 
 
     def findMappedVar(self, direction: str, var: Variable) -> bool:

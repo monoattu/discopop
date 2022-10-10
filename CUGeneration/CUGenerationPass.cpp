@@ -80,12 +80,14 @@ namespace
         string type;
         string defLine;
         string isArray;
+        bool readAccess;
+        bool writeAccess;
 
-        Variable_struct(const Variable_struct &other) : name(other.name), type(other.type), defLine(other.defLine)
+        Variable_struct(const Variable_struct &other) : name(other.name), type(other.type), defLine(other.defLine), readAccess(other.readAccess), writeAccess(other.writeAccess)
         {
         }
 
-        Variable_struct(string n, string t, string d) : name(n), type(t), defLine(d)
+        Variable_struct(string n, string t, string d, bool readAccess, bool writeAccess) : name(n), type(t), defLine(d), readAccess(readAccess), writeAccess(writeAccess)
         {
         }
 
@@ -780,7 +782,9 @@ void CUGeneration::printNode(Node *root, bool isRoot)
             for (auto lvi : cu->localVariableNames)
             {
                 *outCUs << "\t\t\t<local type=\"" << xmlEscape(lvi.type) << "\""
-                        << " defLine=\"" << xmlEscape(lvi.defLine) << "\">"
+                        << " defLine=\"" << xmlEscape(lvi.defLine) << "\""
+                        << " accessMode=\"" << (lvi.readAccess ? "R" : "") << (lvi.writeAccess ? "W" : "")
+                        << "\">"
                         << xmlEscape(lvi.name) << "</local>" << endl;
             }
             *outCUs << "\t\t</localVariables>" << endl;
@@ -789,7 +793,9 @@ void CUGeneration::printNode(Node *root, bool isRoot)
             for (auto gvi : cu->globalVariableNames)
             {
                 *outCUs << "\t\t\t<global type=\"" << xmlEscape(gvi.type) << "\""
-                        << " defLine=\"" << xmlEscape(gvi.defLine) << "\">"
+                        << " defLine=\"" << xmlEscape(gvi.defLine) << "\""
+                        << " accessMode=\"" << (gvi.readAccess ? "R" : "") << (gvi.writeAccess ? "W" : "")
+                        << "\">"
                         << xmlEscape(gvi.name) << "</global>" << endl;
             }
             *outCUs << "\t\t</globalVariables>" << endl;
@@ -1158,7 +1164,7 @@ void CUGeneration::createCUs(Region *TopRegion, set<string> &globalVariablesSet,
                             string type_str;
                             raw_string_ostream rso(type_str);
                             (it->getType())->print(rso);
-                            Variable v(string(it->getName()), rso.str(), lid);
+                            Variable v(string(it->getName()), rso.str(), lid, true, true);
                             n->argumentsList.push_back(v);
                         }
                     }
@@ -1233,7 +1239,10 @@ void CUGeneration::fillCUVariables(Region *TopRegion, set<string> &globalVariabl
                 varType = determineVariableType(&*instruction, varName);
                 varDefLine = determineVariableDefLine(&*instruction, trueVarNamesFromMetadataMap);
 
-                Variable v(varName, varType, varDefLine);
+                bool readAccess = isa<LoadInst>(instruction);
+                bool writeAccess = isa<StoreInst>(instruction);
+
+                Variable v(varName, varType, varDefLine, readAccess, writeAccess);
 
                 std::string prefix("ARRAY");
                 if (!varType.compare(0, prefix.size(), prefix))
@@ -1466,7 +1475,7 @@ bool CUGeneration::runOnFunction(Function &F)
         raw_string_ostream rso(type_str);
         (it->getType())->print(rso);
 
-        Variable v(it->getName().str(), rso.str(), to_string(fileID) + ":" + lid);
+        Variable v(it->getName().str(), rso.str(), to_string(fileID) + ":" + lid, true, true);
         root->argumentsList.push_back(v);
     }
     /********************* End of initialize root values ***************************/

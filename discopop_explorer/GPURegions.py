@@ -3,6 +3,7 @@ from typing import List, Set, Optional, cast
 from .PETGraphX import PETGraphX, CUNode, NodeType, EdgeType
 from .GPULoop import GPULoopPattern
 from .GPUMemory import map_node
+from .utils import is_loop_index2
 from .variable import Variable
 
 
@@ -10,8 +11,6 @@ class GPURegions:
     cascadingLoopsInRegions: List[List[str]]
     gpu_loop_patterns: List[GPULoopPattern]
     loopsInRegion: List[str]
-    startLine: long
-    endLine: long
     pet: PETGraphX
     numRegions: int
 
@@ -85,7 +84,112 @@ class GPURegions:
 
         self.numRegions = regionNum + 1
 
-    def mapData(self) -> None:
+    def determineDataMapping(self) -> None:
+        """determine data mapping for each GPU Region and their contained GPU Loops."""
+
+        for region in self.cascadingLoopsInRegions:
+            print("GPU Region:", region)
+            # determine CUs which belong to the region (= which are located inside the region)
+            region_cus: List[CUNode] = []
+            for loop_id in region:
+                loop_node: CUNode = self.pet.node_at(loop_id)
+                gpu_lp: GPULoopPattern = [p for p in self.gpu_loop_patterns if p.parentLoop == loop_id][0]
+                region_cus += [cu for cu in self.pet.subtree_of_type(loop_node, None) if cu not in region_cus]
+            # determine start and end line of region
+            region_start_line = min([cu.start_line for cu in region_cus])
+            region_end_line = max([cu.end_line for cu in region_cus])
+
+            print("Region CUS: ", [c.id for c in region_cus])
+
+            # determine variables which are written previously#            # determine variables which are written previously
+            # #            consumed_vars: List[str] = []
+            consumed_vars: List[str] = []
+            for cu in region_cus:
+                consumed_edges = self.pet.in_edges(cu.id, EdgeType.PRODUCE_CONSUME)
+                for s, t, d in consumed_edges:
+                    if s not in region_cus:
+                        if d.var_name not in consumed_vars:
+                            consumed_vars.append(d.var_name)
+            print("Consumed vars: ", consumed_vars)
+
+            # determine variables which are read afterwards and written in the region
+            produced_vars: List[str] = []
+            for cu in region_cus:
+                produced_edges = self.pet.out_edges(cu.id, EdgeType.PRODUCE_CONSUME)
+                for s, t, d in produced_edges:
+                    if t not in region_cus:
+                        if d.var_name not in produced_vars:
+                            produced_vars.append(d.var_name)
+            print("Produced vars: ", produced_vars)
+
+            # determine written and read variables
+#            read_vars: List[str] = []
+#            written_vars: List[str] = []
+#            for cu in region_cus:
+#                for var in cu.global_vars + cu.local_vars:
+#                    # ignore loop indices
+#                    is_loop_index = False
+#                    for loop_node in [self.pet.node_at(loop_id) for loop_id in region]:
+#                        if is_loop_index2(self.pet, loop_node, var.name):
+#                            is_loop_index = True
+#                            break
+#                    if is_loop_index:
+#                        continue
+#
+#                    if "R" in var.accessMode and var not in read_vars:
+#                        read_vars.append(var)
+#                    if "W" in var.accessMode and var not in written_vars:
+#                        written_vars.append(var)
+#            print("read vars: ", [v.name for v in read_vars])
+#            print("written vars: ", [v.name for v in written_vars])
+#            for var in read_vars:
+#                for cu in [c for c in self.pet.all_nodes(NodeType.CU) if c not in region_cus]:
+#                    if var.name in [v.name for v in cu.local_vars + cu.global_vars if "W" in v.accessMode]:
+#                        print("Prior write: ", var.name, "@", cu)
+#                        for region_cu in [c for c in region_cus if var.name in [v.name for v in c.local_vars + c.global_vars]]:
+#                            print("Region CU: ", region_cu)
+#                            if self.pet.check_reachability(region_cu, cu, [EdgeType.SUCCESSOR, EdgeType.CHILD]):
+#                                # variable has been written prior to an occurrence in the region
+#                                print("--> PATH")
+#                                if var not in consumed_vars:
+#                                    consumed_vars.append(var)
+
+
+
+
+
+
+
+
+
+
+
+
+
+#            t: int = len(self.cascadingLoopsInRegions[i]) - 1
+#            firstNodeID = self.cascadingLoopsInRegions[i][0]
+#            lastNodeID = self.cascadingLoopsInRegions[i][t]
+#            fn = map_node(self.pet, firstNodeID)
+#            ln = map_node(self.pet, lastNodeID)
+#            start = fn.start_line
+#            end = ln.end_line
+#            gpuRegionLoop = GPULoopPattern(
+#                self.pet, firstNodeID, start, end, 1000)
+#            while t >= 0:
+#                tmp_result = self.findGPULoop(
+#                    self.cascadingLoopsInRegions[i][t])  # tmp_result contains GPU loops inside the parent region
+#
+#                if tmp_result is None:
+#                    t -= 1
+#                    continue#
+#
+#               loopIter: GPULoopPattern = cast(GPULoopPattern, tmp_result)
+#               print("Inner: ")
+#               loopIter.printGPULoop()
+#               t -= 1
+
+
+    def old_mapData(self) -> None:
         """
         :return:
         """

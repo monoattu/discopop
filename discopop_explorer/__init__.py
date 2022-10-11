@@ -80,7 +80,10 @@ def run(cu_xml: str, dep_file: str, loop_counter_file: str, reduction_file: str,
         #       i.start_line + " COLLAPSE: " + str(i.collapse))
 
     regions.identifyGPURegions()
-    regions.mapData()
+    #regions.old_mapData()
+    pet.add_consume_and_produce_edges()
+    regions.determineDataMapping()
+
     # print("-------------------------------------------------------------------------------")
 
     for plugin_name in plugins:

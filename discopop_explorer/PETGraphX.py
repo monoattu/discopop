@@ -52,6 +52,7 @@ class EdgeType(Enum):
     SUCCESSOR = 1
     DATA = 2
     CALLSNODE = 3
+    PRODUCE_CONSUME = 4
 
 
 class DepType(Enum):
@@ -357,6 +358,8 @@ class PETGraphX(object):
                                edgelist=[e for e in self.g.edges(data='data') if e[2].etype == EdgeType.DATA])
         nx.draw_networkx_edges(self.g, pos, edge_color='yellow',
                                edgelist=[e for e in self.g.edges(data='data') if e[2].etype == EdgeType.CALLSNODE])
+        nx.draw_networkx_edges(self.g, pos, edge_color='orange',
+                               edgelist=[e for e in self.g.edges(data='data') if e[2].etype == EdgeType.PRODUCE_CONSUME])
 
         # plt.figure(figsize=(12, 12))
         # nx.spring_layout(self.g, k=0.1, iterations=20)
@@ -908,3 +911,50 @@ class PETGraphX(object):
         :return: encoded string
         """
         return jsonpickle.encode(self)
+
+    def check_reachability(self, target: CUNode,
+                           source: CUNode, edge_types: List[EdgeType]) -> bool:
+        """check if target is reachable from source via edges of types edge_type.
+        :param pet: PET graph
+        :param source: CUNode
+        :param target: CUNode
+        :param edge_types: List[EdgeType]
+        :return: Boolean"""
+        if source == target:
+            return True
+        visited: List[str] = []
+        queue = [target]
+        while len(queue) > 0:
+            cur_node = queue.pop(0)
+            if type(cur_node) == list:
+                cur_node_list = cast(List[CUNode], cur_node)
+                cur_node = cur_node_list[0]
+            visited.append(cur_node.id)
+            tmp_list = [(s, t, e) for s, t, e in self.in_edges(cur_node.id)
+                        if s not in visited and
+                        e.etype in edge_types]
+            for e in tmp_list:
+                if self.node_at(e[0]) == source:
+                    return True
+                else:
+                    if e[0] not in visited:
+                        queue.append(self.node_at(e[0]))
+        return False
+
+    def add_consume_and_produce_edges(self):
+        """Adds edges to denote consume and produce relations for variables inbetween CUs."""
+        for cu_1 in self.all_nodes(NodeType.CU):
+            for cu_2 in self.all_nodes(NodeType.CU):
+                if cu_1 == cu_2:
+                    continue
+                cu_1_writes = [v for v in cu_1.local_vars + cu_1.global_vars if "W" in v.accessMode]
+                cu_2_reads = [v for v in cu_2.local_vars + cu_2.global_vars if "R" in v.accessMode]
+                overlap = [v for v in cu_1_writes if v in cu_2_reads]
+                if len(overlap) == 0:
+                    continue
+                for var in overlap:
+                    dep: Dependency = Dependency(EdgeType.PRODUCE_CONSUME)
+                    dep.var_name = var.name
+                    dep.source = cu_1.id
+                    dep.sink = cu_2.id
+                    self.g.add_edge(cu_1.id, cu_2.id, data=dep)

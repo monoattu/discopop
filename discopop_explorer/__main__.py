@@ -125,11 +125,11 @@ def main():
 
     end = time.time()
 
-    # if arguments['--json'] == 'None':
-    #     print(str(res))
-    # else:
-    #     with open(arguments['--json'], 'w') as f:
-    #         json.dump(res, f, indent=2, cls=PatternInfoSerializer)
+    if arguments['--json'] == 'None':
+        print(str(res))
+    else:
+        with open(arguments['--json'], 'w') as f:
+            json.dump(res, f, indent=2, cls=PatternInfoSerializer)
 
     if arguments['--dump-pet'] != 'None':
         pet_dump_path = get_path(path, arguments['--dump-pet'])

@@ -102,6 +102,14 @@ namespace
             return name > rhs.name;
         }
 
+        inline void update_readAccess(bool value){
+            readAccess = readAccess || value;
+        }
+
+        inline void update_writeAccess(bool value){
+            writeAccess = writeAccess || value;
+        }
+
     } Variable;
 
     enum nodeTypes
@@ -1250,7 +1258,7 @@ void CUGeneration::fillCUVariables(Region *TopRegion, set<string> &globalVariabl
                     varName = "ARRAY, " + varName;
                 }
 
-                errs() << "Name: "  << varName << " " << "Type: " << varType << "\n";
+                errs() << "Name: "  << varName << " " << "Type: " << varType << " Mode: " << v.readAccess << v.writeAccess << "\n";
                 errs() << "\n";
 
                 if (lid > (*bbCU)->endLine)
@@ -1259,7 +1267,18 @@ void CUGeneration::fillCUVariables(Region *TopRegion, set<string> &globalVariabl
                 }
                 if (globalVariablesSet.count(varName) || programGlobalVariablesSet.count(varName))
                 {
-                    (*bbCU)->globalVariableNames.insert(v);
+                    auto iter = (*bbCU)->globalVariableNames.find(v);
+                    if (iter == (*bbCU)->globalVariableNames.end()){
+                        (*bbCU)->globalVariableNames.insert(v);
+                    }
+                    else{
+                        // contained in set
+                        v.update_readAccess(iter->readAccess);
+                        v.update_writeAccess(iter->writeAccess);
+                        (*bbCU)->globalVariableNames.erase(v);  // Read / write access modes not included in hash calculation
+                        (*bbCU)->globalVariableNames.insert(v);
+                    }
+
                     originalVariablesSet.insert(varName);
                 }
                 else

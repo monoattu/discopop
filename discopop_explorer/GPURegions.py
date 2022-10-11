@@ -15,11 +15,13 @@ class GPURegions:
     pet: PETGraphX
     numRegions: int
 
-    def __init__(self):
+    def __init__(self, pet, gpu_patterns):
         self.loopsInRegion = []
-        self.gpu_loop_patterns = []
+        self.gpu_loop_patterns = gpu_patterns
         self.cascadingLoopsInRegions = [[]]
         self.numRegions = 0
+        self.pet = pet
+
 
     def findGPULoop(self, nodeID: str) -> Optional[GPULoopPattern]:
         """
@@ -109,16 +111,19 @@ class GPURegions:
             visitedVars: Set[Variable] = set()
             while t >= 0:
                 tmp_result = self.findGPULoop(
-                    self.cascadingLoopsInRegions[i][t])
+                    self.cascadingLoopsInRegions[i][t])  # tmp_result contains GPU loops inside the parent region
+
                 if tmp_result is None:
                     t -= 1
                     continue
+
                 loopIter: GPULoopPattern = cast(GPULoopPattern, tmp_result)
                 varis: Set[Variable] = set([])
                 varis.update(loopIter.map_type_alloc)
                 varis.update(loopIter.map_type_to)
                 varis.update(loopIter.map_type_from)
                 varis.update(loopIter.map_type_tofrom)
+                # loopIter.printGPULoop()
                 for v in varis:
                     if loopIter.findMappedVar("from", v):
                         if v in visitedVars:
@@ -167,7 +172,10 @@ class GPURegions:
                             gpuRegionLoop.map_type_alloc.append(v)
                             visitedVars.add(v)
                 t -= 1
-            gpuRegionLoop.printGPULoop()
+
+            # gpuRegionLoop.printGPULoop()  # only prints first loop of the region.
+                                            # first loop of the region is used to store the map_to behavior
+                                            # last loop if the region should be used to store the map_from behavior
 
     def findNextLoop(self) -> None:
         """
@@ -198,15 +206,6 @@ class GPURegions:
                 self.gpu_loop_patterns[skip].nextLoop = self.gpu_loop_patterns[i + 1].node_id
 
             i += 1
-
-    def setGPULoops(self, gpu_loops: List[GPULoopPattern]) -> None:
-        """
-
-        :param gpu_loops:
-        :return:
-        """
-        for i in gpu_loops:
-            self.gpu_loop_patterns.append(i)
 
     def getParentLoop(self, node: CUNode) -> bool:
         """

@@ -72,9 +72,8 @@ def run(cu_xml: str, dep_file: str, loop_counter_file: str, reduction_file: str,
     # print("\nnumber of detected patterns: " + str(len(gpu_patterns)))
     # print("-------------------------------------------------------------------------------")
 
-    regions = GPURegions()
-    regions.pet = pet
-    regions.setGPULoops(gpu_patterns)
+    regions = GPURegions(pet, gpu_patterns)
+
     for i in gpu_patterns:
         i.setCollapseClause(i.node_id)
         # print("id: " + i.node_id + " start: " +

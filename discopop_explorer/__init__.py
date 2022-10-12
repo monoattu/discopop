@@ -81,8 +81,6 @@ def run(cu_xml: str, dep_file: str, loop_counter_file: str, reduction_file: str,
 
     regions.identifyGPURegions()
     #regions.old_mapData()
-    # todo remove?
-    # pet.add_consume_and_produce_edges()
     regions.determineDataMapping()
 
     # print("-------------------------------------------------------------------------------")

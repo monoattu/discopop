@@ -941,23 +941,3 @@ class PETGraphX(object):
                         queue.append(self.node_at(e[0]))
         return False
 
-    def add_consume_and_produce_edges(self):
-        """Adds edges to denote consume and produce relations for variables inbetween CUs."""
-        for cu_1 in self.all_nodes(NodeType.CU):
-            for cu_2 in self.all_nodes(NodeType.CU):
-                if cu_1 == cu_2:
-                    continue
-                # consumer must be a successor of the producer
-                if not self.check_reachability(cu_1, cu_2, [EdgeType.SUCCESSOR, EdgeType.CHILD]):
-                    continue
-                cu_1_writes = [v for v in cu_1.local_vars + cu_1.global_vars if "W" in v.accessMode]
-                cu_2_reads = [v for v in cu_2.local_vars + cu_2.global_vars if "R" in v.accessMode]
-                overlap = [v for v in cu_1_writes if v in cu_2_reads]
-                if len(overlap) == 0:
-                    continue
-                for var in overlap:
-                    dep: Dependency = Dependency(EdgeType.PRODUCE_CONSUME)
-                    dep.var_name = var.name
-                    dep.source = cu_1.id
-                    dep.sink = cu_2.id
-                    self.g.add_edge(cu_1.id, cu_2.id, data=dep)

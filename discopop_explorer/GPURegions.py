@@ -1,6 +1,6 @@
 from numpy import long  # type: ignore
 from typing import List, Set, Optional, cast
-from .PETGraphX import PETGraphX, CUNode, NodeType, EdgeType
+from .PETGraphX import PETGraphX, CUNode, NodeType, EdgeType, DepType
 from .GPULoop import GPULoopPattern
 from .GPUMemory import map_node
 from .utils import is_loop_index2
@@ -99,24 +99,37 @@ class GPURegions:
             region_start_line = min([cu.start_line for cu in region_cus])
             region_end_line = max([cu.end_line for cu in region_cus])
 
+
             # determine variables which are written outside the region and read inside
             consumed_vars: List[str] = []
             for cu in region_cus:
-                consumed_edges = self.pet.in_edges(cu.id, EdgeType.PRODUCE_CONSUME)
-                for s, t, d in consumed_edges:
-                    if s not in region_cus:
-                        if d.var_name not in consumed_vars:
-                            consumed_vars.append(d.var_name)
+                in_dep_edges = self.pet.out_edges(cu.id, EdgeType.DATA)
+                # var is consumed, if incoming RAW dep exists
+                for sink_cu_id, source_cu_id, dep in in_dep_edges:
+                    # unpack dep for sake of clarity
+                    sink_line = dep.sink
+                    source_line = dep.source
+                    var_name = dep.var_name
+                    if self.pet.node_at(source_cu_id) not in region_cus:
+                        if dep.dtype == DepType.RAW:
+                            if dep.var_name not in consumed_vars:
+                                consumed_vars.append(dep.var_name)
             print("Consumed vars: ", consumed_vars)
 
             # determine variables which are read afterwards and written in the region
             produced_vars: List[str] = []
             for cu in region_cus:
-                produced_edges = self.pet.out_edges(cu.id, EdgeType.PRODUCE_CONSUME)
-                for s, t, d in produced_edges:
-                    if t not in region_cus:
-                        if d.var_name not in produced_vars:
-                            produced_vars.append(d.var_name)
+                out_dep_edges = self.pet.in_edges(cu.id, EdgeType.DATA)
+                # var is produced, if outgoing RAW or WAW dep exists
+                for sink_cu_id, source_cu_id, dep in out_dep_edges:
+                    # unpack dep for sake of clarity
+                    sink_line = dep.sink
+                    source_line = dep.source
+                    var_name = dep.var_name
+                    if self.pet.node_at(sink_cu_id) not in region_cus:
+                        if dep.dtype in [DepType.RAW, DepType.WAW]:
+                            if dep.var_name not in produced_vars:
+                                produced_vars.append(dep.var_name)
             print("Produced vars: ", produced_vars)
 
 

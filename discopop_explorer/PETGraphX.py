@@ -947,6 +947,9 @@ class PETGraphX(object):
             for cu_2 in self.all_nodes(NodeType.CU):
                 if cu_1 == cu_2:
                     continue
+                # consumer must be a successor of the producer
+                if not self.check_reachability(cu_1, cu_2, [EdgeType.SUCCESSOR, EdgeType.CHILD]):
+                    continue
                 cu_1_writes = [v for v in cu_1.local_vars + cu_1.global_vars if "W" in v.accessMode]
                 cu_2_reads = [v for v in cu_2.local_vars + cu_2.global_vars if "R" in v.accessMode]
                 overlap = [v for v in cu_1_writes if v in cu_2_reads]

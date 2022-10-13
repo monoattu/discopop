@@ -10,6 +10,8 @@
 	<Node id="1:1" type="0" name="" startsAtLine = "1:19" endsAtLine = "1:22">
 		<childrenNodes></childrenNodes>
 		<BasicBlockID>entry</BasicBlockID>
+		<readPhaseLines count="0"></readPhaseLines>
+		<writePhaseLines count="2">1:19,1:21</writePhaseLines>
 		<returnInstructions count="0"></returnInstructions>
 		<successors>
 			<CU>1:2</CU>
@@ -28,6 +30,8 @@
 	<Node id="1:2" type="0" name="" startsAtLine = "1:25" endsAtLine = "1:25">
 		<childrenNodes></childrenNodes>
 		<BasicBlockID>entry</BasicBlockID>
+		<readPhaseLines count="1">1:25</readPhaseLines>
+		<writePhaseLines count="1">1:25</writePhaseLines>
 		<returnInstructions count="0"></returnInstructions>
 		<successors>
 			<CU>1:9</CU>
@@ -49,6 +53,8 @@
 	<Node id="1:9" type="0" name="" startsAtLine = "1:25" endsAtLine = "1:25">
 		<childrenNodes></childrenNodes>
 		<BasicBlockID>for.cond</BasicBlockID>
+		<readPhaseLines count="1">1:25</readPhaseLines>
+		<writePhaseLines count="0"></writePhaseLines>
 		<returnInstructions count="0"></returnInstructions>
 		<successors>
 			<CU>1:10</CU>
@@ -67,6 +73,8 @@
 	<Node id="1:10" type="0" name="" startsAtLine = "1:26" endsAtLine = "1:26">
 		<childrenNodes></childrenNodes>
 		<BasicBlockID>for.body</BasicBlockID>
+		<readPhaseLines count="1">1:26</readPhaseLines>
+		<writePhaseLines count="1">1:26</writePhaseLines>
 		<returnInstructions count="0"></returnInstructions>
 		<successors>
 			<CU>1:11</CU>
@@ -85,6 +93,8 @@
 	<Node id="1:11" type="0" name="" startsAtLine = "1:25" endsAtLine = "1:25">
 		<childrenNodes></childrenNodes>
 		<BasicBlockID>for.inc</BasicBlockID>
+		<readPhaseLines count="1">1:25</readPhaseLines>
+		<writePhaseLines count="1">1:25</writePhaseLines>
 		<returnInstructions count="0"></returnInstructions>
 		<successors>
 			<CU>1:9</CU>
@@ -101,6 +111,8 @@
 	<Node id="1:12" type="0" name="" startsAtLine = "1:28" endsAtLine = "1:29">
 		<childrenNodes></childrenNodes>
 		<BasicBlockID>for.end</BasicBlockID>
+		<readPhaseLines count="1">1:28</readPhaseLines>
+		<writePhaseLines count="0"></writePhaseLines>
 		<returnInstructions count="1">1:29</returnInstructions>
 		<successors>
 		</successors>

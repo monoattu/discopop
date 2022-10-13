@@ -1,0 +1,26 @@
+W;NULL@*;strict STATIC_FWD
+W;NULL@*;strict STATIC_BWD
+W;i@1:25;strict STATIC_FWD
+W;i@1:25;strict STATIC_BWD
+W;i@1:25;STATIC_FWD
+W;i@1:25;STATIC_BWD
+W;n@1:21;strict STATIC_FWD
+W;n@1:21;strict STATIC_BWD
+W;b@1:26;strict SEQ_FWD_K
+W;m@1:21;strict STATIC_FWD
+W;m@1:21;strict STATIC_BWD
+W;retval@1:19;strict STATIC_FWD
+W;retval@1:19;strict STATIC_BWD
+R;b@1:28;strict STATIC_FWD
+R;b@1:28;strict STATIC_BWD
+R;b@1:26;strict SEQ_FWD_K
+R;m@1:26;STATIC_FWD
+R;m@1:26;STATIC_BWD
+R;i@1:26;STATIC_FWD
+R;i@1:26;STATIC_BWD
+R;n@1:25;STATIC_FWD
+R;n@1:25;STATIC_BWD
+R;i@1:25;STATIC_FWD
+R;i@1:25;STATIC_BWD
+R;m@1:25;strict STATIC_FWD
+R;m@1:25;strict STATIC_BWD

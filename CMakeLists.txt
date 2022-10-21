@@ -25,3 +25,11 @@ add_subdirectory(DPInstrumentation)
 add_subdirectory(DPReduction)
 add_subdirectory(DPInstrumentationOmission)
 add_subdirectory(rtlib)
+
+# store path to llvm installation in build.config file
+configure_file(cmake/build.config.in ${CMAKE_CURRENT_BINARY_DIR}/build.config)
+
+# we need go to install gllvm
+#if(NOT GO_EXECUTABLE)
+#  message(FATAL_ERROR "Could not find Go")
+#endif()

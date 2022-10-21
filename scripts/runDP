@@ -1,4 +1,13 @@
 #!/bin/bash
+
+# This file is part of the DiscoPoP software (http://www.discopop.tu-darmstadt.de)
+#
+# Copyright (c) 2020, Technische Universitaet Darmstadt, Germany
+#
+# This software may be modified and distributed under the terms of
+# the 3-Clause BSD License. See the LICENSE file in the package base
+# directory for details.
+
 # author: Bertin Görlich,  Oktober 2022
 # description:
 #   This script uses gllvm to build a project (ffmpeg).
@@ -9,7 +18,7 @@
 
 # TODO general approach
 # TODO input params
-# TODO support projects: cmake, make, configure
+# TODO support projects: cmake, make, configure (check automatically if specific files exist)
 # functions!
 # github
 
@@ -37,9 +46,8 @@ EXECUTABLE_NAME=ffmpeg
 EXECUTABLE_ARGUMENTS="-y -i /home/bertingoerlich/skriptsAndNotes/short.mp4 output_%s.avi"
 # a file with compile and link commands used during the build will be created here --> use it to more easily determine $LINKER_FLAGS
 COMMAND_FILE=$PROJECT_BUILD/gllvm_log.txt
-# amount of threads to use for make -j
-THREADS=1
-  # TODO set it back to 47, before: check gllvm_log
+# amount of threads to use for make -j, set it to 1 if you want to analyze the gllvm log
+THREADS=47
 
 
 # ************************************************************

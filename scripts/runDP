@@ -1,0 +1,174 @@
+#!/bin/bash
+# author: Bertin Görlich,  Oktober 2022
+# description:
+#   This script uses gllvm to build a project (ffmpeg).
+#   Then a single bitcode executable (.bc) is created.
+#   It is optionally converted to llvm ir (.ll)
+#   Then we run discopop passes and instrumentation on it.
+#   Later we will generate parallelization suggestions using the discopop profiler
+
+# TODO general approach
+# TODO input params
+# TODO support projects: cmake, make, configure
+# functions!
+# github
+
+
+# ************************************************************
+# *** general configuration used in the rest of the script ***
+# ************************************************************
+
+# gllvm binaries are located here
+GLLVM_BASE=/home/bertingoerlich/go/bin
+# path to a working llvm build
+LLVM_BUILD=/home/bertingoerlich/llvm/11/build
+# paths to discopop source and build
+DP_SOURCE=/home/bertingoerlich/dp
+DP_BUILD=$DP_SOURCE/build
+# project specific paths:
+PROJECT_BASE_PATH=/home/bertingoerlich/projects/ffmpeg5.1
+PROJECT_SOURCE=$PROJECT_BASE_PATH
+PROJECT_BUILD=$PROJECT_BASE_PATH/build
+PROJECT_CONFIGURE_OPTIONS="--cc=$GLLVM_BASE/gclang --cxx=$GLLVM_BASE/gclang++ --ld=$GLLVM_BASE/gclang++ --disable-x86asm --disable-shared --disable-optimizations --disable-ffprobe --disable-ffplay --disable-network --disable-w32threads --disable-os2threads --disable-pthreads"
+LINKER_FLAGS="-lxcb -lxcb-shm -lbz2 -lz -lvdpau -lm -latomic -lX11"
+# we will execute 1) the original, 2) dp instrumentation, and 3) dp hybrid
+EXECUTABLE_NAME=ffmpeg
+# arguments for the executable (use %s for customized arguments depending on type of execution [original, dpinst, dphybrid])
+EXECUTABLE_ARGUMENTS="-y -i /home/bertingoerlich/skriptsAndNotes/short.mp4 output_%s.avi"
+# a file with compile and link commands used during the build will be created here --> use it to more easily determine $LINKER_FLAGS
+COMMAND_FILE=$PROJECT_BUILD/gllvm_log.txt
+# amount of threads to use for make -j
+THREADS=1
+  # TODO set it back to 47, before: check gllvm_log
+
+
+# ************************************************************
+# *** gllvm installation: do this only once!!              ***
+# ************************************************************
+# TODO conditional execution of this segment
+
+# gllvm uses go, the "go" executable is installed on the server under /usr/local/go/bin/go
+# --> create an alias or specify the executable directly on the command line
+# the following command will INSTALL GLLVM binaries in /home/<username>/go/bin  (unless configured differently)
+
+#go get github.com/SRI-CSL/gllvm/cmd/...
+
+# UNINSTALLING go packages is weird (installation creates files that you cannot remove due to missing permissions...)
+# the trick is to install the program with version "none" and then delete it
+#go get github.com/SRI-CSL/gllvm/cmd/...@none
+#go clean -cache -modcache
+#if you want you can then remove ~/go 
+
+
+# ************************************************************
+# *** configure gllvm environment variables                ***
+# ************************************************************
+
+export LLVM_COMPILER_PATH=$LLVM_BUILD/bin
+export WLLVM_OUTPUT_LEVEL="AUDIT"  # can be used to more easily determine flags needed during the link step
+export WLLVM_OUTPUT_FILE=$COMMAND_FILE
+
+
+# ************************************************************
+# *** configure, build with gllvm, create single .bc file  ***
+# ************************************************************
+
+# we want a clean rebuild
+# everything inside the build directory gets deleted!!
+rm -rf $PROJECT_BUILD
+mkdir $PROJECT_BUILD
+
+# Create Filemapping.txt file
+# needs to be created in source tree, not in build directory
+# copy Filemapping.txt to build directory for easy access
+cd $PROJECT_SOURCE
+rm -f FileMapping.txt
+$DP_SOURCE/scripts/dp-fmap 
+mv FileMapping.txt $PROJECT_BUILD
+
+# configure
+cd $PROJECT_BUILD
+WLLVM_CONFIGURE_ONLY=true $PROJECT_SOURCE/configure $PROJECT_CONFIGURE_OPTIONS
+
+# build regularly
+# the gllvm tools will also create a hidden .bc file for every compilation
+make -j$THREADS
+
+# combine all the .bc files to a single .bc files
+# --manifest will create a file that lists all the used .bc files, which might be helpful
+time $GLLVM_BASE/get-bc $EXECUTABLE_NAME
+
+# optionally convert to .ll
+time $LLVM_BUILD/bin/llvm-dis ${EXECUTABLE_NAME}.bc -o ${EXECUTABLE_NAME}.ll
+
+
+# ************************************************************
+# *** run dp passes                                        ***
+# ************************************************************
+
+# CU Generation
+time $LLVM_BUILD/bin/opt -S -load $DP_BUILD/libi/LLVMCUGeneration.so -CUGeneration \
+    -fm-path FileMapping.txt ${EXECUTABLE_NAME}.ll -o ${EXECUTABLE_NAME}_dpcugen.ll
+
+# Reduction
+time $LLVM_BUILD/bin/opt -S -load $DP_BUILD/libi/LLVMDPReduction.so -DPReduction \
+    -fm-path FileMapping.txt ${EXECUTABLE_NAME}.ll -o ${EXECUTABLE_NAME}_dpreduction.ll
+
+# Instrumentation
+time $LLVM_BUILD/bin/opt -S -load $DP_BUILD/libi/LLVMDPInstrumentation.so -DiscoPoP \
+    -fm-path FileMapping.txt ${EXECUTABLE_NAME}.ll -o ${EXECUTABLE_NAME}_dpinst.ll
+
+# InstrumentationOmission
+# TODO currently disabled due to a bug
+#$LLVM_BUILD/bin/opt -S -load $DP_BUILD/libi/LLVMDPInstrumentationOmission.so -dp-instrumentation-omission \
+#    -fm-path FileMapping.txt ${EXECUTABLE_NAME}_dpinst.ll -o ${EXECUTABLE_NAME}_dphybrid.ll
+
+
+# ************************************************************
+# *** run instrumentation                                  ***
+# ************************************************************
+
+#### Sanity Check: compile and execute the not instrumented .ll file that was obtained by gllvm ####
+# compile
+#$LLVM_BUILD/bin/llc -filetype=obj ${EXECUTABLE_NAME}.ll -o ${EXECUTABLE_NAME}_original.o
+#$LLVM_BUILD/bin/clang++ ${EXECUTABLE_NAME}_original.o -W1 -O0 -g -o ${EXECUTABLE_NAME}_original -L$DP_BUILD/rtlib -lDiscoPoP_RT -lpthread $LINKER_FLAGS
+
+# execute
+#./${EXECUTABLE_NAME}_original `printf -- "$EXECUTABLE_ARGUMENTS" original`
+
+
+#### Instrumentation ####
+# compile
+time $LLVM_BUILD/bin/llc -filetype=obj  ${EXECUTABLE_NAME}_dpinst.ll -o  ${EXECUTABLE_NAME}_dpinst.o
+time $LLVM_BUILD/bin/clang++ ${EXECUTABLE_NAME}_dpinst.o -W1 -O0 -g -o ${EXECUTABLE_NAME}_dpinst -L$DP_BUILD/rtlib -lDiscoPoP_RT -lpthread $LINKER_FLAGS
+
+# execute
+time ./${EXECUTABLE_NAME}_dpinst `printf -- "$EXECUTABLE_ARGUMENTS" dpinst`
+
+
+#### InstrumentationOmission ####
+# TODO currently disabled due to a bug
+# compile
+#$LLVM_BUILD/bin/llc -filetype=obj  ${EXECUTABLE_NAME}_dphybrid.ll -o  ${EXECUTABLE_NAME}_dphybrid.o
+#$LLVM_BUILD/bin/clang++ ${EXECUTABLE_NAME}_dphybrid.o -W1 -O0 -g -o ${EXECUTABLE_NAME}_dphybrid -L$DP_BUILD/rtlib -lDiscoPoP_RT -lpthread $LINKER_FLAGS
+
+# execute
+#./${EXECUTABLE_NAME}_dphybrid `printf -- "$EXECUTABLE_ARGUMENTS" dphybrid`
+
+
+# ************************************************************
+# *** run discopop explorer                                ***
+# ************************************************************
+
+time PYTHONPATH=$DP_SOURCE python3 -m discopop_explorer --dep-file=ffmpeg_dpinst_dep.txt
+
+# PRO TIP 1: use tmux to run this script and just shut down your pc while this is running... it takes a while xD
+# https://askubuntu.com/questions/8653/how-to-keep-processes-running-after-ending-ssh-session
+# tmux
+# <start some command>
+# ctr + b, then d
+# close ssh session, enjoy a coffee or just come back the next day
+# `tmux attach` to go back to the process
+
+# PRO TIP 2: use bash -x to run a script while also seeing the executed commands
+# e.g. run this script and write all output to a file: bash -x gllvm_workflow.sh  > execution_output.txt 2>&1
